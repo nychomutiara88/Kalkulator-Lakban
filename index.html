@@ -552,7 +552,7 @@ inputs.forEach(c => {
 
 // toggles: meter & core
 const selMeter = document.getElementById('sel-meter');
-for (let m=50; m<=100; m++){
+for (let m=40; m<=100; m++){
   const o = document.createElement('option'); o.value=m; o.textContent=m;
   if (m===DEFAULTS.meter) o.selected=true;
   selMeter.appendChild(o);
