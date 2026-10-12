@@ -364,6 +364,7 @@
           </label>
         </div>
         <div class="bb-readout">Berat Bersih (Daging Lakban): <b id="out-bb">0</b> gram</div>
+        <div class="bb-readout">Berat Total (Berat Kotor): <b id="out-bk">0</b> gram</div>
       </div>
     </div>
 
@@ -660,8 +661,10 @@ function recompute(){
   const rJumbo   = perGram(hargaKg  * ppnMul(s.ppn.jumbo)) * bb;
   const rKardus45= (s.kardus45      * ppnMul(s.ppn.kardus45)) / 72;
   const rKardus48= (s.kardus48      * ppnMul(s.ppn.kardus48)) / 72;
-
+  const beratKotor = (2 * s.meter) + 18;
+  
   document.getElementById('out-bb').textContent = fmtRp2(bb);
+  document.getElementById('out-bk').textContent = fmtInt(beratKotor);
   setOut2('out2-paperCore', rPaper);
   setOut2('out2-labelCore', rLabelC);
   setOut2('out2-labelPanah', rLabelP);
