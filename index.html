@@ -37,6 +37,10 @@
 
   .kurs-strip{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;background:var(--brand-soft);border:1px solid var(--brand-line);border-radius:12px;padding:12px 16px;margin-bottom:24px;}
   .kurs-strip .lbl{font-size:13px;color:var(--brand-strong);font-weight:600;}
+  .curr-seg{display:inline-flex;background:#fff;border:1px solid var(--brand-line-strong);border-radius:10px;padding:3px;gap:3px;}
+  .curr-opt{appearance:none;border:none;background:transparent;color:var(--ink-soft);font:inherit;font-weight:700;font-size:13px;letter-spacing:.02em;padding:7px 15px;border-radius:7px;cursor:pointer;transition:background .15s,color .15s;}
+  .curr-opt:hover{color:var(--brand);}
+  .curr-opt.on{background:var(--brand);color:#fff;}
   .kurs-field{display:flex;align-items:center;gap:6px;}
   .kurs-field .pre{font-size:13px;color:var(--brand-bright);font-weight:600;}
   .kurs-field input{width:130px;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px;border:1px solid var(--brand-line-strong);background:#fff;border-radius:8px;padding:7px 10px;color:var(--ink);}
@@ -240,10 +244,14 @@
   </header>
 
   <div class="kurs-strip">
-    <span class="lbl">Kurs USD → IDR</span>
+    <div class="curr-seg" id="currSeg">
+      <button type="button" class="curr-opt on" data-curr="USD">USD</button>
+      <button type="button" class="curr-opt" data-curr="RMB">RMB</button>
+    </div>
+    <span class="lbl" id="kursLbl">Kurs USD → IDR</span>
     <div class="kurs-field">
       <span class="pre">Rp</span>
-      <input class="num" id="inp-kurs" inputmode="numeric" autocomplete="off" aria-label="Kurs USD ke IDR">
+      <input class="num" id="inp-kurs" inputmode="numeric" autocomplete="off" aria-label="Kurs ke IDR">
     </div>
     <button class="btn" id="btnKurs" type="button">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
@@ -486,7 +494,7 @@
 
 const DEFAULTS = {
   // Section 1
-  hargaBarang:1.526, ukuran:28125, kurs:17700,
+  hargaBarang:1.526, ukuran:28125, kurs:17700, curr:'USD',
   biayaDO:5812650, liftOnOff:2199798, invoiceLS:7000000,
   rollPerKontainer:125, kgPerRoll:225,
   // Section 2 (Harga Sebelum PPN)
@@ -500,6 +508,11 @@ const DEFAULTS = {
 };
 const state = { ...DEFAULTS, ppn:{ ...DEFAULTS.ppn } };
 let kursMode = 'manual';
+
+// kurs per mata uang (fallback manual kalau API gagal) — state.kurs = kurs mata uang yg sedang dipilih
+const RATE_DEFAULT = { USD:17700, RMB:2450 };
+state.rates = { ...RATE_DEFAULT };
+const curSym = () => state.curr === 'RMB' ? '¥' : '$';
 
 // tabel backend
 const CORE_WEIGHT = { '2':17, '2.8':22, '3':23 };   // gram (Tabel Ukuran Core)
@@ -553,7 +566,7 @@ inputs.forEach(c => {
 
 // toggles: meter & core
 const selMeter = document.getElementById('sel-meter');
-for (let m=40; m<=100; m++){
+for (let m=50; m<=100; m++){
   const o = document.createElement('option'); o.value=m; o.textContent=m;
   if (m===DEFAULTS.meter) o.selected=true;
   selMeter.appendChild(o);
@@ -581,10 +594,25 @@ document.querySelectorAll('input[name="kardusPick"]').forEach(r => {
 
 // kurs
 const kursEl = document.getElementById('inp-kurs');
+const kursLbl = document.getElementById('kursLbl');
 kursEl.value = fmtInt(state.kurs);
-kursEl.addEventListener('input', () => { state.kurs = parseIntId(kursEl.value); kursMode='manual'; setKursStatus(); recompute(); });
+// ketik manual -> ubah kurs mata uang yg sedang dipilih
+kursEl.addEventListener('input', () => { state.kurs = parseIntId(kursEl.value); state.rates[state.curr] = state.kurs; kursMode='manual'; setKursStatus(); recompute(); });
 kursEl.addEventListener('focus', () => { kursEl.value = String(state.kurs || ''); kursEl.select(); });
 kursEl.addEventListener('blur',  () => { kursEl.value = fmtInt(state.kurs); });
+
+// pakai mata uang tertentu (USD / RMB): set label, kurs aktif, isi input
+function applyCurrency(curr){
+  state.curr = curr;
+  state.kurs = state.rates[curr] || 0;
+  kursLbl.textContent = 'Kurs ' + curr + ' → IDR';
+  kursEl.value = fmtInt(state.kurs);
+  document.querySelectorAll('#currSeg .curr-opt').forEach(b => b.classList.toggle('on', b.dataset.curr === curr));
+  recompute();
+}
+document.querySelectorAll('#currSeg .curr-opt').forEach(b => {
+  b.addEventListener('click', () => applyCurrency(b.dataset.curr));
+});
 
 function setKursStatus(msg){
   const dot = document.getElementById('kursDot'), st = document.getElementById('kursStatus');
@@ -592,28 +620,47 @@ function setKursStatus(msg){
   if (kursMode==='auto'){ dot.classList.remove('manual'); st.textContent = 'Otomatis · ' + new Date().toLocaleString('id-ID',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'}); }
   else { dot.classList.add('manual'); st.textContent = 'Manual (ketik sendiri)'; }
 }
-const KURS_SOURCES = [
-  { url:'https://open.er-api.com/v6/latest/USD',                                                  pick:j=>j&&j.rates&&j.rates.IDR },
-  { url:'https://api.frankfurter.app/latest?from=USD&to=IDR',                                      pick:j=>j&&j.rates&&j.rates.IDR },
-  { url:'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json',    pick:j=>j&&j.usd&&j.usd.idr },
-];
-async function fetchKurs(){
-  setKursStatus('Memuat kurs…');
-  for (const src of KURS_SOURCES){
+
+// sumber kurs real-time per mata uang (RMB = CNY). Tiap mata uang coba 3 sumber bergantian.
+const KURS_SOURCES = {
+  USD: [
+    { url:'https://open.er-api.com/v6/latest/USD',                                               pick:j=>j&&j.rates&&j.rates.IDR },
+    { url:'https://api.frankfurter.app/latest?from=USD&to=IDR',                                   pick:j=>j&&j.rates&&j.rates.IDR },
+    { url:'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json', pick:j=>j&&j.usd&&j.usd.idr },
+  ],
+  RMB: [
+    { url:'https://open.er-api.com/v6/latest/CNY',                                                pick:j=>j&&j.rates&&j.rates.IDR },
+    { url:'https://api.frankfurter.app/latest?from=CNY&to=IDR',                                   pick:j=>j&&j.rates&&j.rates.IDR },
+    { url:'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/cny.json', pick:j=>j&&j.cny&&j.cny.idr },
+  ],
+};
+async function fetchRate(curr){
+  for (const src of KURS_SOURCES[curr]){
     try{
       const r = await fetch(src.url, {cache:'no-store'});
       if (!r.ok) continue;
       const j = await r.json();
       const idr = src.pick(j);
-      if (idr){
-        state.kurs = Math.round(idr); kursMode='auto';
-        kursEl.value = fmtInt(state.kurs); setKursStatus(); recompute();
-        return;
-      }
+      if (idr) return Math.round(idr);
     }catch(e){ /* sumber ini gagal, coba berikutnya */ }
   }
-  // semua sumber gagal (mis. diblokir di preview / semua API down) -> manual
-  kursMode='manual'; setKursStatus('Auto tidak tersedia · isi kurs manual'); recompute();
+  return null;
+}
+async function fetchKurs(){
+  setKursStatus('Memuat kurs…');
+  const [usd, rmb] = await Promise.all([fetchRate('USD'), fetchRate('RMB')]);
+  let ok = false;
+  if (usd){ state.rates.USD = usd; ok = true; }
+  if (rmb){ state.rates.RMB = rmb; ok = true; }
+  if (ok){
+    kursMode='auto';
+    state.kurs = state.rates[state.curr];
+    kursEl.value = fmtInt(state.kurs);
+    setKursStatus(); recompute();
+  } else {
+    // semua sumber gagal (mis. diblokir di preview / semua API down) -> manual
+    kursMode='manual'; setKursStatus('Auto tidak tersedia · isi kurs manual'); recompute();
+  }
 }
 
 // perhitungan inti
@@ -632,13 +679,13 @@ function recompute(){
   const hargaRoll = (totalHargaBarang + totalPengiriman) / roll;
   const hargaKg   = hargaRoll / kg;
 
-  setOut('out-echoHargaBarang', fmtUSD3(s.hargaBarang), '$');
+  setOut('out-echoHargaBarang', fmtUSD3(s.hargaBarang), curSym());
   setOut('out-echoBiayaDO', fmtRp(s.biayaDO), 'Rp');
   setOut('out-echoLiftOnOff', fmtRp(s.liftOnOff), 'Rp');
   setOut('out-echoInvoiceLS', fmtRp(s.invoiceLS), 'Rp');
   setOut('out-echoRoll', fmtInt(s.rollPerKontainer));
   setOut('out-echoKg', fmtInt(s.kgPerRoll));
-  setOut('out-nilaiBarang', fmtUSD(nilaiBarang), '$');
+  setOut('out-nilaiBarang', fmtUSD(nilaiBarang), curSym());
   setOut('out-totalHargaBarang', fmtRp(totalHargaBarang), 'Rp');
   setOut('out-ppn', fmtRp(ppn), 'Rp');
   setOut('out-pph', fmtRp(pph), 'Rp');
@@ -661,8 +708,8 @@ function recompute(){
   const rJumbo   = perGram(hargaKg  * ppnMul(s.ppn.jumbo)) * bb;
   const rKardus45= (s.kardus45      * ppnMul(s.ppn.kardus45)) / 72;
   const rKardus48= (s.kardus48      * ppnMul(s.ppn.kardus48)) / 72;
-  const beratKotor = (2 * s.meter) + 18;
-  
+
+  const beratKotor = (2 * s.meter) + 18;   // Berat Total (Berat Kotor) — tidak terpengaruh Core
   document.getElementById('out-bb').textContent = fmtRp2(bb);
   document.getElementById('out-bk').textContent = fmtInt(beratKotor);
   setOut2('out2-paperCore', rPaper);
@@ -729,9 +776,10 @@ document.getElementById('btnKurs').addEventListener('click', fetchKurs);
 const mtBtn = document.getElementById('mtBtn');
 if (mtBtn) mtBtn.addEventListener('click', () => { const t = document.getElementById('produksiCard'); if (t) t.scrollIntoView({behavior:'smooth', block:'center'}); });
 document.getElementById('btnReset').addEventListener('click', () => {
-  Object.assign(state, DEFAULTS); state.ppn = { ...DEFAULTS.ppn };
+  Object.assign(state, DEFAULTS); state.ppn = { ...DEFAULTS.ppn }; state.rates = { ...RATE_DEFAULT };
   inputs.forEach(c => { document.getElementById(c.id).value = displayValue(c); });
-  kursEl.value = fmtInt(state.kurs); kursMode='manual'; setKursStatus();
+  kursMode='manual'; setKursStatus();
+  applyCurrency('USD');
   selMeter.value = String(DEFAULTS.meter); selCore.value = DEFAULTS.core;
   document.querySelectorAll('.ppn-tgl').forEach(b => b.classList.toggle('on', !!state.ppn[b.dataset.ppn]));
   document.querySelectorAll('input[name="kardusPick"]').forEach(r => { r.checked = (r.value === state.kardusPick); });
